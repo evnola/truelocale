@@ -16,9 +16,9 @@
 ## 📦 Installation
 
 ```bash
-npm install @truelocale/core
+npm install @evnola/core
 # or
-yarn add @truelocale/core
+yarn add @evnola/core
 ```
 
 ## 🛠️ Usage
@@ -28,7 +28,7 @@ yarn add @truelocale/core
 You need to provide API keys and model configurations.
 
 ```typescript
-import { ConsensusEngine, EngineOptions } from '@truelocale/core';
+import { ConsensusEngine, EngineOptions } from '@evnola/core';
 
 const options: EngineOptions = {
   llmConfig: {
