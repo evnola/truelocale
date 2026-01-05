@@ -1,0 +1,31 @@
+{
+    "name": "@truelocale/core",
+    "version": "0.1.0",
+    "description": "An open-source, multi-agent consensus engine designed for high-accuracy standard and creative translations.",
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
+    "scripts": {
+        "build": "tsc",
+        "test": "jest"
+    },
+    "keywords": [
+        "translation",
+        "llm",
+        "agents",
+        "consensus",
+        "ai"
+    ],
+    "author": "TrueLocale",
+    "license": "MIT",
+    "devDependencies": {
+        "typescript": "^5.0.0",
+        "@types/node": "^20.0.0"
+    },
+    "dependencies": {
+        "ai": "^3.0.0",
+        "@ai-sdk/openai": "^0.0.1",
+        "@ai-sdk/anthropic": "^0.0.1",
+        "@ai-sdk/google": "^0.0.1",
+        "zod": "^3.0.0"
+    }
+}
