@@ -22,10 +22,10 @@
         "@types/node": "^20.0.0"
     },
     "dependencies": {
-        "ai": "^3.0.0",
-        "@ai-sdk/openai": "^0.0.1",
-        "@ai-sdk/anthropic": "^0.0.1",
-        "@ai-sdk/google": "^0.0.1",
+        "ai": "^6.0.5",
+        "@ai-sdk/openai": "^3.0.2",
+        "@ai-sdk/anthropic": "^3.0.2",
+        "@ai-sdk/google": "^3.0.2",
         "zod": "^3.0.0"
     }
 }

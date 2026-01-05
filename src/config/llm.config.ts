@@ -1,12 +1,9 @@
-
-import { AgentRole } from '@/types';
-
-export const LLM_CONFIG: Record<AgentRole | 'tone-generator', { provider: string; model: string }> = {
-    TRANSLATOR: { provider: 'google', model: 'gemini-2.5-flash' }, // User specified 4.1-mini, assuming typo for 4o-mini or future model. Keeping as requested.
+export const LLM_CONFIG = {
+    TRANSLATOR: { provider: 'google', model: 'gemini-2.5-flash' },
     REVIEWER: { provider: 'openai', model: 'gpt-5-mini' },
     ARBITRATOR: { provider: 'anthropic', model: 'claude-haiku-4-5' },
     JUDGE: { provider: 'google', model: 'gemini-2.5-pro' },
-    'tone-generator': { provider: 'google', model: 'gemini-2.5-flash' } // Default for potential future use
+    'tone-generator': { provider: 'google', model: 'gemini-2.5-flash' }
 };
 
 export interface ThresholdConfig {
