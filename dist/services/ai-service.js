@@ -23,12 +23,21 @@ class AiService {
     }
     async generate(provider, modelId, prompt, system) {
         const model = this.getModel(provider, modelId);
-        const { text } = await (0, ai_1.generateText)({
+        const { text, usage } = await (0, ai_1.generateText)({
             model,
             system,
             prompt,
         });
-        return text;
+        const tokenUsage = usage;
+        return {
+            text,
+            usage: {
+                inputTokens: tokenUsage?.inputTokens ?? tokenUsage?.promptTokens ?? 0,
+                outputTokens: tokenUsage?.outputTokens ?? tokenUsage?.completionTokens ?? 0,
+                totalTokens: tokenUsage?.totalTokens ?? ((tokenUsage?.inputTokens ?? tokenUsage?.promptTokens ?? 0) +
+                    (tokenUsage?.outputTokens ?? tokenUsage?.completionTokens ?? 0)),
+            },
+        };
     }
 }
 exports.AiService = AiService;

@@ -18,6 +18,9 @@ export interface ConsensusLog {
     content: string;
     reasoning?: string;
     timestamp: Date;
+    inputTokens?: number;
+    outputTokens?: number;
+    requestContent?: string;
 }
 interface JsonPrompt {
     system: string;
@@ -30,6 +33,8 @@ export interface EngineOptions {
     }>;
     thresholds: ThresholdConfig;
     prompts?: Record<string, JsonPrompt>;
+    workflow?: 'standard' | 'fast';
+    useJudge?: boolean;
 }
 export declare class ConsensusEngine {
     private options;

@@ -5,6 +5,6 @@
         "source_text": "{{source}}",
         "original_translation": "{{originalTranslation}}",
         "reviewer_suggestion": "{{reviewerSuggestion}}",
-        "instruction": "Analyze the semantic and localization impact between the original translation and the suggested change.\n\nReturn JSON exactly in the following format:\n{\n  \"score\": number,\n  \"verdict\": \"KEEP_ORIGINAL\" | \"ESCALATE\",\n  \"confidence\": number,\n  \"reasoning\": \"short, factual explanation\"\n}\n\nRules:\n- Do NOT rewrite the translation.\n- Do NOT invent alternative translations.\n- If confidence < {{threshold_high}}, verdict MUST be \"ESCALATE\"."
+        "instruction": "Analyze the dispute between Translator and Reviewer.\n\nYou have 3 options:\n1. KEEP_ORIGINAL: The difference is trivial/stylistic. Original is fine.\n2. ACCEPT_REVIEWER: The Reviewer's suggestion is clearly better (fixes an error).\n3. ESCALATE: The dispute is complex/ambiguous. Needs a Judge.\n\nReturn JSON exactly in the following format:\n{\n  \"score\": number (0-1),\n  \"verdict\": \"KEEP_ORIGINAL\" | \"ACCEPT_REVIEWER\" | \"ESCALATE\",\n  \"confidence\": number,\n  \"reasoning\": \"Detailed analysis of why you made this choice.\",\n  \"recommendation\": \"A short note to the Judge (if escalating) or the final decision rationale.\"\n}\n\nRules:\n- Be decisive if the error is objective (typo, wrong term).\n- If unsure, ESCALATE but explain your leaning in 'recommendation'."
     }
 }

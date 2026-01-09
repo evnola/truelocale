@@ -1,6 +1,6 @@
 {
     "name": "@evnola/truelocale",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "description": "An open-source, multi-agent consensus engine designed for high-accuracy standard and creative translations.",
     "main": "dist/index.js",
     "types": "dist/index.d.ts",

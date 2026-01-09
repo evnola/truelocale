@@ -3,6 +3,17 @@ import { createAnthropic } from '@ai-sdk/anthropic';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { generateText } from 'ai';
 
+export interface TokenUsage {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+}
+
+export interface GenerateResult {
+    text: string;
+    usage: TokenUsage;
+}
+
 export class AiService {
     private openai: ReturnType<typeof createOpenAI>;
     private anthropic: ReturnType<typeof createAnthropic>;
@@ -27,15 +38,26 @@ export class AiService {
         modelId: string,
         prompt: string,
         system?: string
-    ): Promise<string> {
+    ): Promise<GenerateResult> {
         const model = this.getModel(provider, modelId);
 
-        const { text } = await generateText({
+        const { text, usage } = await generateText({
             model,
             system,
             prompt,
         });
 
-        return text;
+        const tokenUsage = usage as any;
+        return {
+            text,
+            usage: {
+                inputTokens: tokenUsage?.inputTokens ?? tokenUsage?.promptTokens ?? 0,
+                outputTokens: tokenUsage?.outputTokens ?? tokenUsage?.completionTokens ?? 0,
+                totalTokens: tokenUsage?.totalTokens ?? (
+                    (tokenUsage?.inputTokens ?? tokenUsage?.promptTokens ?? 0) +
+                    (tokenUsage?.outputTokens ?? tokenUsage?.completionTokens ?? 0)
+                ),
+            },
+        };
     }
 }

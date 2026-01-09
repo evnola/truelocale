@@ -5,6 +5,7 @@ import translatorPrompt from '../config/translator.json';
 import reviewerPrompt from '../config/reviewer.json';
 import judgePrompt from '../config/judge.json';
 import arbitratorPrompt from '../config/arbitrator.json';
+import arbitratorFinalPrompt from '../config/arbitrator-final.json';
 import translatorEvaluatorPrompt from '../config/translator-evaluator.json';
 
 // Interfaces for the library
@@ -28,6 +29,9 @@ export interface ConsensusLog {
     content: string;
     reasoning?: string;
     timestamp: Date;
+    inputTokens?: number;
+    outputTokens?: number;
+    requestContent?: string;
 }
 
 interface JsonPrompt {
@@ -40,6 +44,7 @@ const DEFAULT_PROMPTS: Record<string, JsonPrompt> = {
     'reviewer': reviewerPrompt as unknown as JsonPrompt,
     'judge': judgePrompt as unknown as JsonPrompt,
     'arbitrator': arbitratorPrompt as unknown as JsonPrompt,
+    'arbitrator-final': arbitratorFinalPrompt as unknown as JsonPrompt,
     'translator-evaluator': translatorEvaluatorPrompt as unknown as JsonPrompt,
 };
 
@@ -47,6 +52,8 @@ export interface EngineOptions {
     llmConfig: Record<string, { provider: string; model: string }>;
     thresholds: ThresholdConfig;
     prompts?: Record<string, JsonPrompt>; // Allow overriding prompts
+    workflow?: 'standard' | 'fast'; // 'standard' = ABACD, 'fast' = ABCD (skip A2)
+    useJudge?: boolean; // If false, Arbitrator makes final decision
 }
 
 export class ConsensusEngine {
@@ -116,16 +123,18 @@ export class ConsensusEngine {
         });
 
         const config = this.options.llmConfig.TRANSLATOR;
-        const translation = await this.aiService.generate(
+        const validPrompt = `Please EXECUTE the following translation task.\nRefer to the "instruction" field within the JSON for specific rules.\n\nINPUT TASK:\n${JSON.stringify(userObject, null, 2)}`;
+
+        const result = await this.aiService.generate(
             config.provider,
             config.model,
-            `Please EXECUTE the following translation task.\nRefer to the "instruction" field within the JSON for specific rules.\n\nINPUT TASK:\n${JSON.stringify(userObject, null, 2)}`,
+            validPrompt,
             populatedSystem
         );
 
-        segment.currentTranslation = translation.trim();
+        segment.currentTranslation = result.text.trim();
         segment.status = 'TRANSLATED';
-        segment.history.push(this.createLog('TRANSLATOR', 'PROPOSE', translation));
+        segment.history.push(this.createLog('TRANSLATOR', 'PROPOSE', result.text, undefined, result.usage.inputTokens, result.usage.outputTokens, validPrompt));
 
         return segment;
     }
@@ -145,36 +154,42 @@ export class ConsensusEngine {
         });
 
         const config = this.options.llmConfig.REVIEWER;
-        const response = await this.aiService.generate(
+        const validPrompt = JSON.stringify(userObject);
+        const result = await this.aiService.generate(
             config.provider,
             config.model,
-            JSON.stringify(userObject),
+            validPrompt,
             populatedSystem
         );
 
-        let result: { status: string; correction?: string; reason?: string };
+        let parsed: { status: string; correction?: string; reason?: string };
 
         try {
-            const cleanJson = response.replace(/```json/g, '').replace(/```/g, '').trim();
-            result = JSON.parse(cleanJson);
+            const cleanJson = result.text.replace(/```json/g, '').replace(/```/g, '').trim();
+            parsed = JSON.parse(cleanJson);
         } catch (e) {
-            // console.error('Reviewer JSON parse error.', response);
-            const isApproved = response.toLowerCase().includes('approved') || response.toLowerCase().includes('looks good');
-            result = {
+            const isApproved = result.text.toLowerCase().includes('approved') || result.text.toLowerCase().includes('looks good');
+            parsed = {
                 status: isApproved ? 'APPROVED' : 'CHANGES_REQUESTED',
-                correction: response,
+                correction: result.text,
                 reason: 'Parsed from raw output (JSON failed).'
             };
         }
 
-        if (result.status === 'APPROVED') {
+        if (parsed.status === 'APPROVED') {
             segment.status = 'APPROVED';
-            segment.history.push(this.createLog('REVIEWER', 'ACCEPT_CRITIQUE', 'Translation verified.', result.reason));
+            segment.history.push(this.createLog('REVIEWER', 'ACCEPT_CRITIQUE', 'Translation verified.', parsed.reason, result.usage.inputTokens, result.usage.outputTokens, validPrompt));
         } else {
-            segment.status = 'EVALUATION';
-            const correction = result.correction || 'No correction provided';
-            const reason = result.reason || 'No reason provided';
-            segment.history.push(this.createLog('REVIEWER', 'CRITIQUE', correction, reason));
+            // Check workflow to decide next step
+            if (this.options.workflow === 'fast') {
+                segment.status = 'DISPUTED'; // Skip A2 (Evaluation), Go directly to C (Arbitrator)
+            } else {
+                segment.status = 'EVALUATION'; // Standard ABACD flow
+            }
+
+            const correction = parsed.correction || 'No correction provided';
+            const reason = parsed.reason || 'No reason provided';
+            segment.history.push(this.createLog('REVIEWER', 'CRITIQUE', correction, reason, result.usage.inputTokens, result.usage.outputTokens, validPrompt));
         }
 
         return segment;
@@ -199,25 +214,26 @@ export class ConsensusEngine {
         });
 
         const config = this.options.llmConfig.TRANSLATOR;
-        const jsonResponse = await this.aiService.generate(
+        const validPrompt = JSON.stringify(userObject);
+        const response = await this.aiService.generate(
             config.provider,
             config.model,
-            JSON.stringify(userObject),
+            validPrompt,
             populatedSystem
         );
 
         try {
-            const cleanJson = jsonResponse.replace(/```json/g, '').replace(/```/g, '').trim();
+            const cleanJson = response.text.replace(/```json/g, '').replace(/```/g, '').trim();
             const result = JSON.parse(cleanJson);
 
             if (result.decision === 'ACCEPT') {
                 segment.status = 'RESOLVED';
                 segment.currentTranslation = result.final_text || segment.currentTranslation;
-                segment.history.push(this.createLog('TRANSLATOR', 'ACCEPT_CRITIQUE', `Agreed. ${result.reasoning}`));
+                segment.history.push(this.createLog('TRANSLATOR', 'ACCEPT_CRITIQUE', `Agreed. ${result.reasoning}`, undefined, response.usage.inputTokens, response.usage.outputTokens, validPrompt));
             } else {
                 segment.status = 'DISPUTED';
                 segment.currentTranslation = result.final_text || segment.currentTranslation;
-                segment.history.push(this.createLog('TRANSLATOR', 'REJECT_CRITIQUE', `Rejected. ${result.reasoning}`));
+                segment.history.push(this.createLog('TRANSLATOR', 'REJECT_CRITIQUE', `Rejected. ${result.reasoning}`, undefined, response.usage.inputTokens, response.usage.outputTokens, validPrompt));
             }
 
         } catch (e) {
@@ -230,7 +246,9 @@ export class ConsensusEngine {
     private async runArbitrator(segment: JobSegment, globalContext?: string): Promise<JobSegment> {
         // console.log(`[Agent C] Arbitrating segment ${segment.id}`);
 
-        const { system, user_template } = this.getPrompt('arbitrator');
+        const useJudge = this.options.useJudge ?? true; // Default to true if not specified
+        const promptKey = useJudge ? 'arbitrator' : 'arbitrator-final';
+        const { system, user_template } = this.getPrompt(promptKey);
 
         const populatedSystem = this.populateTemplate(system, {
             threshold_low: this.options.thresholds.NO_DISPUTE,
@@ -248,33 +266,65 @@ export class ConsensusEngine {
         });
 
         const config = this.options.llmConfig.ARBITRATOR;
-        const jsonResponse = await this.aiService.generate(
+        const validPrompt = JSON.stringify(userObject);
+        const response = await this.aiService.generate(
             config.provider,
             config.model,
-            JSON.stringify(userObject),
+            validPrompt,
             populatedSystem
         );
 
         try {
-            const cleanJson = jsonResponse.replace(/```json/g, '').replace(/```/g, '').trim();
+            const cleanJson = response.text.replace(/```json/g, '').replace(/```/g, '').trim();
             const result = JSON.parse(cleanJson);
 
             const decision = result.verdict || (result.score < this.options.thresholds.NO_DISPUTE ? 'KEEP_ORIGINAL' : 'ESCALATE');
             const confidence = result.confidence ?? 'N/A';
             const reasoning = result.reasoning ?? 'No reasoning parsed.';
+            const recommendation = result.recommendation ?? 'No recommendation provided.';
 
-            const logContent = `Score: ${result.score}. Confidence: ${confidence}. Decision: ${decision}. Reasoning: ${reasoning}`;
+            let logContent = `Score: ${result.score}. Confidence: ${confidence}. Decision: ${decision}. Reasoning: ${reasoning}`;
 
-            segment.history.push(this.createLog('ARBITRATOR', 'RULING', logContent));
-
-            if (decision === 'KEEP_ORIGINAL') {
-                segment.status = 'RESOLVED';
+            // Handle No-Judge Mode Logic
+            if (!useJudge) {
+                if (decision === 'KEEP_ORIGINAL') {
+                    segment.status = 'RESOLVED';
+                    segment.currentTranslation = result.final_text || originalTranslation;
+                } else if (decision === 'ACCEPT_REVIEWER') {
+                    segment.status = 'RESOLVED';
+                    segment.currentTranslation = result.final_text || reviewerCritique;
+                } else if (decision === 'REWRITE') {
+                    segment.status = 'RESOLVED';
+                    segment.currentTranslation = result.final_text || segment.currentTranslation;
+                } else {
+                    // Fallback for unexpected verdicts
+                    segment.status = 'RESOLVED';
+                }
+                logContent += ` [FINAL AUTHORITY]`;
             } else {
-                segment.status = 'ESCALATED';
+                // Standard Logic with Judge
+                if (decision === 'KEEP_ORIGINAL') {
+                    segment.status = 'RESOLVED';
+                } else if (decision === 'ACCEPT_REVIEWER') {
+                    segment.status = 'RESOLVED';
+                    segment.currentTranslation = reviewerCritique;
+                } else {
+                    segment.status = 'ESCALATED';
+                    logContent += `. Recommendation: ${recommendation}`;
+                }
             }
 
+            segment.history.push(this.createLog('ARBITRATOR', 'RULING', logContent, undefined, response.usage.inputTokens, response.usage.outputTokens, validPrompt));
+
         } catch (e) {
-            segment.status = 'ESCALATED';
+            console.error('Arbitrator parsing error:', e);
+            // If judge is used, escalate. If not, default to original.
+            if (useJudge) {
+                segment.status = 'ESCALATED';
+            } else {
+                segment.status = 'RESOLVED';
+                segment.history.push(this.createLog('ARBITRATOR', 'ERROR', 'Failed to parse arbitration result. Kept original.', undefined, response.usage.inputTokens, response.usage.outputTokens, validPrompt));
+            }
         }
 
         return segment;
@@ -295,29 +345,30 @@ export class ConsensusEngine {
         });
 
         const config = this.options.llmConfig.JUDGE;
-        const jsonResponse = await this.aiService.generate(
+        const validPrompt = JSON.stringify(userObject);
+        const response = await this.aiService.generate(
             config.provider,
             config.model,
-            JSON.stringify(userObject),
+            validPrompt,
             populatedSystem
         );
 
         let result: { final_translation: string; reasoning?: string };
         try {
-            const cleanJson = jsonResponse.replace(/```json/g, '').replace(/```/g, '').trim();
+            const cleanJson = response.text.replace(/```json/g, '').replace(/```/g, '').trim();
             result = JSON.parse(cleanJson);
         } catch (e) {
-            result = { final_translation: jsonResponse, reasoning: 'Failed to parse reasoning.' };
+            result = { final_translation: response.text, reasoning: 'Failed to parse reasoning.' };
         }
 
         segment.currentTranslation = result.final_translation.trim();
         segment.status = 'RESOLVED';
-        segment.history.push(this.createLog('JUDGE', 'RULING', result.final_translation, result.reasoning));
+        segment.history.push(this.createLog('JUDGE', 'RULING', result.final_translation, result.reasoning, response.usage.inputTokens, response.usage.outputTokens, validPrompt));
 
         return segment;
     }
 
-    private createLog(role: ConsensusLog['role'], action: ConsensusLog['action'], content: string, reasoning?: string): ConsensusLog {
+    private createLog(role: ConsensusLog['role'], action: ConsensusLog['action'], content: string, reasoning?: string, inputTokens?: number, outputTokens?: number, requestContent?: string): ConsensusLog {
         const log: ConsensusLog = {
             step: Date.now(),
             role,
@@ -325,6 +376,9 @@ export class ConsensusEngine {
             action,
             content,
             timestamp: new Date(),
+            inputTokens,
+            outputTokens,
+            requestContent
         };
 
         if (reasoning) {
